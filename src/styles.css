@@ -1,0 +1,733 @@
+/* ---------------------------------------------------------------------------
+   DocuLoom.
+
+   This is a reading instrument, so the page is built like a printed one: warm
+   paper, a real text face at a real reading size, a generous measure, and a
+   margin that belongs to the annotator. Chrome stays out of the way; the
+   paper's own words are the largest thing on screen at every zoom level.
+
+   Fonts are self-hosted (see main.tsx). A local-first reader should not call
+   out to a font CDN to render a document you already have.
+--------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light dark;
+
+  /* Warm paper, warm ink. Nothing here is a neutral grey. */
+  --paper: #faf7f2;
+  --paper-raised: #fffdfa;
+  --paper-sunken: #f2ede4;
+  --ink: #1c1917;
+  --ink-2: #57534e;
+  --ink-3: #8a8279;
+  --rule: #e7e0d5;
+  --rule-strong: #d3c9ba;
+
+  --accent: #9a3412;
+  --accent-soft: #fbeee6;
+  --highlight: rgba(240, 190, 90, 0.42);
+  --highlight-edge: #d99a2b;
+
+  /* Margin-note kinds. Hue tells you what kind of aside it is before you
+     read it: an explanation, a warning, a reading of a number. */
+  --note-why: #6d4aa8;
+  --note-watch: #a1620a;
+  --note-result: #156b3d;
+  --note-caution: #a62a22;
+  --note-context: #0f6b66;
+
+  --support-direct: #156b3d;
+  --support-inferred: #a1620a;
+  --support-unverified: #a62a22;
+
+  --serif: 'Source Serif 4 Variable', 'Source Serif 4', Georgia, serif;
+  --sans: 'Instrument Sans Variable', 'Instrument Sans', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  --measure: 66ch;
+  --margin-col: 15.5rem;
+  --radius: 7px;
+  --shadow: 0 1px 2px rgba(60, 40, 20, 0.05), 0 8px 24px rgba(60, 40, 20, 0.06);
+}
+
+:root[data-theme='dark'] {
+  --paper: #14120f;
+  --paper-raised: #1b1814;
+  --paper-sunken: #100e0c;
+  --ink: #ece5d8;
+  --ink-2: #a89f92;
+  --ink-3: #776f66;
+  --rule: #2c2721;
+  --rule-strong: #443d34;
+
+  --accent: #e08b5f;
+  --accent-soft: #2a1d15;
+  --highlight: rgba(224, 170, 70, 0.3);
+  --highlight-edge: #a8762a;
+
+  --note-why: #b79ae8;
+  --note-watch: #e0a94f;
+  --note-result: #6fcf97;
+  --note-caution: #ef8a80;
+  --note-context: #5fc7bf;
+
+  --support-direct: #6fcf97;
+  --support-inferred: #e0a94f;
+  --support-unverified: #ef8a80;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 26px rgba(0, 0, 0, 0.36);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --paper: #14120f;
+    --paper-raised: #1b1814;
+    --paper-sunken: #100e0c;
+    --ink: #ece5d8;
+    --ink-2: #a89f92;
+    --ink-3: #776f66;
+    --rule: #2c2721;
+    --rule-strong: #443d34;
+    --accent: #e08b5f;
+    --accent-soft: #2a1d15;
+    --highlight: rgba(224, 170, 70, 0.3);
+    --highlight-edge: #a8762a;
+    --note-why: #b79ae8;
+    --note-watch: #e0a94f;
+    --note-result: #6fcf97;
+    --note-caution: #ef8a80;
+    --note-context: #5fc7bf;
+    --support-direct: #6fcf97;
+    --support-inferred: #e0a94f;
+    --support-unverified: #ef8a80;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 26px rgba(0, 0, 0, 0.36);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+input { font: inherit; color: inherit; }
+::selection { background: var(--highlight); }
+
+/* --------------------------------- shell -------------------------------- */
+
+.app { display: flex; flex-direction: column; height: 100%; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  height: 52px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: saturate(1.4) blur(10px);
+  position: relative;
+  z-index: 20;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variation-settings: 'opsz' 20;
+}
+
+.topbar__title {
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 34vw;
+}
+
+.spacer { flex: 1; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+.btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn--primary:hover:not(:disabled) { filter: brightness(1.1); color: #fff; }
+.btn--quiet { border-color: transparent; background: none; color: var(--ink-2); }
+.btn--quiet:hover:not(:disabled) { background: var(--paper-sunken); color: var(--ink); }
+
+/* ------------------------------ zoom control ---------------------------- */
+
+/* The signature control. Four stops on a track, with the label of the
+   current level carried underneath, so it reads as a setting rather than
+   as a row of buttons. */
+.zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-sunken);
+  position: relative;
+}
+.zoom__stop {
+  position: relative;
+  z-index: 1;
+  padding: 4px 13px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  color: var(--ink-3);
+  transition: color 0.16s;
+}
+.zoom__stop:hover { color: var(--ink); }
+.zoom__stop[aria-checked='true'] { color: var(--paper-raised); }
+.zoom__thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 999px;
+  background: var(--ink);
+  transition: left 0.26s cubic-bezier(0.32, 0.72, 0, 1), width 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+  z-index: 0;
+}
+
+.zoom-hint {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-style: italic;
+  font-family: var(--serif);
+}
+
+/* ------------------------------- reader --------------------------------- */
+
+.reader-scroll { flex: 1; overflow-y: auto; min-height: 0; scroll-behavior: smooth; }
+.reader { padding: 42px 28px 55vh; }
+
+/* Text column plus annotator's margin, aligned per passage so a note sits
+   beside the sentence it is about rather than floating near it. */
+.passage {
+  display: grid;
+  grid-template-columns: minmax(0, var(--measure)) var(--margin-col);
+  gap: 0 34px;
+  justify-content: center;
+  align-items: start;
+  margin: 0 auto;
+  scroll-margin-top: 80px;
+}
+
+.passage__body { grid-column: 1; min-width: 0; }
+.passage__margin { grid-column: 2; min-width: 0; }
+
+/* With nothing to annotate, the margin should not sit there holding width
+   and pushing the text off centre. */
+.reader--bare .passage { grid-template-columns: minmax(0, var(--measure)); }
+.reader--bare .passage__margin { display: none; }
+
+.prose {
+  font-family: var(--serif);
+  font-size: 19px;
+  line-height: 1.66;
+  color: var(--ink);
+  font-variation-settings: 'opsz' 14;
+  margin: 0 0 1.1em;
+  hanging-punctuation: first;
+}
+.prose--caption,
+.prose--list,
+.prose--footnote {
+  font-size: 16.5px;
+  color: var(--ink-2);
+}
+.prose--equation {
+  font-family: var(--mono);
+  font-size: 15px;
+  text-align: center;
+  color: var(--ink-2);
+  background: var(--paper-sunken);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+
+h2.section-head {
+  font-family: var(--serif);
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  font-variation-settings: 'opsz' 28;
+  margin: 2.2em 0 0.7em;
+  line-height: 1.22;
+}
+h3.section-head { font-size: 20px; margin: 1.8em 0 0.6em; }
+
+.paper-head { margin: 0 auto 2.6em; max-width: var(--measure); }
+.paper-head h1 {
+  font-family: var(--serif);
+  font-size: 34px;
+  line-height: 1.18;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variation-settings: 'opsz' 32;
+  margin: 0 0 10px;
+}
+.paper-head__meta { font-size: 13.5px; color: var(--ink-3); }
+
+/* ------------------------------- gist ----------------------------------- */
+
+.gist {
+  max-width: 54ch;
+  margin: 6vh auto;
+  font-family: var(--serif);
+  font-size: 23px;
+  line-height: 1.55;
+  font-variation-settings: 'opsz' 18;
+}
+.gist__label {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+.gist__drop::first-letter {
+  float: left;
+  font-size: 3.1em;
+  line-height: 0.82;
+  padding: 0.06em 0.08em 0 0;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ------------------------------ outline --------------------------------- */
+
+.outline-list { max-width: 72ch; margin: 0 auto; }
+.outline-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 17px 20px 17px 22px;
+  border-left: 2px solid var(--rule-strong);
+  margin-bottom: 4px;
+  transition: border-color 0.16s, background 0.16s;
+}
+.outline-card:hover { border-left-color: var(--accent); background: var(--paper-raised); }
+.outline-card--key { border-left-color: var(--accent); }
+.outline-card__head {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 600;
+  margin-bottom: 5px;
+  font-variation-settings: 'opsz' 20;
+}
+.outline-card__body {
+  font-family: var(--serif);
+  font-size: 16.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+/* -------------------------------- skim ---------------------------------- */
+
+.skim-list { max-width: 76ch; margin: 0 auto; }
+
+.beat {
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr);
+  gap: 13px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px 7px 2px;
+  border-radius: var(--radius);
+  align-items: baseline;
+  transition: background 0.14s;
+  scroll-margin-top: 80px;
+}
+.beat:hover { background: var(--paper-raised); }
+
+/* Importance reads as weight, not as a badge: a key line is simply bolder
+   and darker than a skippable one. */
+.beat__mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-top: 0.42em;
+  background: var(--kind, var(--ink-3));
+}
+.beat--i2 .beat__mark { width: 5px; height: 5px; margin-left: 1px; opacity: 0.75; }
+.beat--i3 .beat__mark { width: 4px; height: 4px; margin-left: 1.5px; opacity: 0.45; }
+
+.beat__text {
+  font-family: var(--serif);
+  font-size: 17.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.beat--i1 .beat__text { font-size: 19px; color: var(--ink); font-weight: 550; }
+.beat--i3 .beat__text { font-size: 16.5px; color: var(--ink-3); }
+
+.beat__sect {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 26px 0 8px 26px;
+}
+
+/* ----------------------------- margin notes ------------------------------ */
+
+.note {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-left: 2px solid var(--note, var(--rule-strong));
+  padding: 1px 0 1px 11px;
+  margin-bottom: 15px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  transition: color 0.14s;
+}
+.note:hover { color: var(--ink); }
+.note__kind {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--note, var(--ink-3));
+  margin-bottom: 3px;
+}
+
+/* On a narrow screen the margin collapses into the flow, where a note
+   becomes a marker you open rather than something that steals width. */
+.note-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1px solid var(--note, var(--rule-strong));
+  color: var(--note, var(--ink-3));
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: super;
+  margin-left: 3px;
+}
+
+/* -------------------------------- terms --------------------------------- */
+
+.term {
+  border-bottom: 1px dashed var(--rule-strong);
+  cursor: help;
+  transition: border-color 0.14s, background 0.14s;
+}
+.term:hover { border-bottom-color: var(--accent); background: var(--accent-soft); }
+
+.popover {
+  position: fixed;
+  z-index: 60;
+  width: min(320px, calc(100vw - 32px));
+  padding: 13px 15px;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  box-shadow: var(--shadow);
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.popover__term {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+.popover__alias { font-size: 12px; color: var(--ink-3); margin-bottom: 7px; font-style: italic; }
+
+/* ------------------------------- evidence -------------------------------- */
+
+/* A quiet affordance in the gutter: visible when you want it, invisible
+   while you read. */
+.src {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  opacity: 0;
+  transition: opacity 0.14s, color 0.14s, border-color 0.14s;
+}
+.passage:hover .src, .beat:hover .src, .src:focus-visible { opacity: 1; }
+.src:hover { color: var(--accent); border-color: var(--accent); opacity: 1; }
+
+.support-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--support-direct);
+  flex: 0 0 auto;
+}
+.support-dot--inferred { background: var(--support-inferred); }
+.support-dot--unverified { background: var(--support-unverified); }
+
+/* --------------------------------- rail ---------------------------------- */
+
+/* Progress and place. The rail is the only persistent navigation; it shows
+   where you are in the paper without a sidebar of links. */
+.rail {
+  position: fixed;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 8px;
+}
+.rail__tick {
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--rule-strong);
+  transition: background 0.18s, width 0.18s;
+  position: relative;
+}
+.rail__tick--key { width: 24px; }
+.rail__tick--active { background: var(--accent); width: 28px; }
+.rail__tick:hover { background: var(--accent); width: 28px; }
+.rail__tick:hover::after {
+  content: attr(data-label);
+  position: absolute;
+  left: 34px;
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 3px 7px;
+  box-shadow: var(--shadow);
+}
+
+/* ------------------------------- library --------------------------------- */
+
+.library { max-width: 58rem; margin: 0 auto; padding: 8vh 28px 60px; }
+.library__title {
+  font-family: var(--serif);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variation-settings: 'opsz' 32;
+  margin: 0 0 8px;
+}
+.library__lede {
+  font-family: var(--serif);
+  font-size: 19px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  max-width: 48ch;
+  margin: 0 0 34px;
+}
+
+.dropzone {
+  border: 1px dashed var(--rule-strong);
+  border-radius: 10px;
+  padding: 38px 22px;
+  text-align: center;
+  color: var(--ink-2);
+  background: var(--paper-raised);
+  transition: border-color 0.16s, background 0.16s;
+}
+.dropzone--over { border-color: var(--accent); background: var(--accent-soft); }
+
+.shelf { list-style: none; padding: 0; margin: 32px 0 0; }
+.shelf__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 4px;
+  border-top: 1px solid var(--rule);
+}
+.shelf__row:last-child { border-bottom: 1px solid var(--rule); }
+.shelf__main { flex: 1; min-width: 0; text-align: left; }
+.shelf__title {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-bottom: 3px;
+}
+.shelf__main:hover .shelf__title { color: var(--accent); }
+.shelf__meta { font-size: 12.5px; color: var(--ink-3); }
+
+/* --------------------------------- pdf ----------------------------------- */
+
+.pdf { flex: 1; overflow: auto; background: var(--paper-sunken); padding: 18px; }
+.pdf__page { position: relative; margin: 0 auto 16px; width: fit-content; box-shadow: var(--shadow); }
+.pdf__page canvas { display: block; }
+.pdf__highlight {
+  position: absolute;
+  background: var(--highlight);
+  border: 1px solid var(--highlight-edge);
+  border-radius: 2px;
+  pointer-events: none;
+  animation: breathe 1.5s ease-out 2;
+}
+@keyframes breathe {
+  50% { background: color-mix(in srgb, var(--highlight) 25%, transparent); }
+}
+
+/* -------------------------------- misc ----------------------------------- */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  height: 100%;
+  padding: 40px;
+  text-align: center;
+  color: var(--ink-2);
+}
+.empty__title {
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.empty__body { font-family: var(--serif); font-size: 17px; max-width: 46ch; line-height: 1.6; }
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--rule-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex: 0 0 auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.banner {
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  font-size: 13.5px;
+  margin: 14px 0;
+}
+.banner--error { border-color: var(--support-unverified); }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(28, 20, 12, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  backdrop-filter: blur(2px);
+}
+.modal {
+  width: min(540px, 100%);
+  max-height: 86vh;
+  overflow: auto;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+.modal h2 {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.field { display: block; margin: 14px 0 10px; }
+.field > span { display: block; font-size: 12.5px; color: var(--ink-2); margin-bottom: 5px; }
+.field input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--paper);
+  outline: none;
+}
+.field input:focus { border-color: var(--accent); }
+
+.provider-row {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 11px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+}
+.provider-row--active { border-color: var(--accent); background: var(--accent-soft); }
+
+/* The margin is a luxury of width. Below this it folds into the text. */
+@media (max-width: 1180px) {
+  .passage { grid-template-columns: minmax(0, var(--measure)); }
+  .passage__margin { display: none; }
+  .rail { display: none; }
+}
+
+@media (max-width: 720px) {
+  .reader { padding: 24px 18px 50vh; }
+  .prose { font-size: 17.5px; }
+  .library__title { font-size: 30px; }
+  .topbar { gap: 8px; padding: 0 10px; }
+  .topbar__title { display: none; }
+}
